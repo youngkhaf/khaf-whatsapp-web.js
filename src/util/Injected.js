@@ -5,7 +5,13 @@ exports.ExposeStore = (moduleRaidStr) => {
     eval('var moduleRaid = ' + moduleRaidStr);
     // eslint-disable-next-line no-undef
     window.mR = moduleRaid();
+    console.log("exposing")
     window.Store = Object.assign({}, window.mR.findModule(m => m.default && m.default.Chat)[0].default);
+    window.Store.pollVolte = window.mR.findModule('showPollVoteNotification')[0]
+    window.Store.createdPollVoteModels = []
+    //window.Store.pollVolte = window.mR.findModule('getVoteCount')[0]
+    console.log("pollVote",window.Store.pollVolte)
+    //console.log("voteCount",window.Store.pollVolte)
     window.Store.AppState = window.mR.findModule('Socket')[0].Socket;
     window.Store.Conn = window.mR.findModule('Conn')[0].Conn;
     window.Store.BlockContact = window.mR.findModule('blockContact')[0];
@@ -70,7 +76,6 @@ exports.ExposeStore = (moduleRaidStr) => {
         ...window.mR.findModule('sendExitGroup')[0],
         ...window.mR.findModule('sendSetPicture')[0]
     };
-
     if (!window.Store.Chat._find) {
         window.Store.Chat._find = e => {
             const target = window.Store.Chat.get(e);
@@ -79,12 +84,8 @@ exports.ExposeStore = (moduleRaidStr) => {
             });
         };
     }
-
-    if (window.mR.findModule('ChatCollection')[0] && window.mR.findModule('ChatCollection')[0].ChatCollection) {
-        if (typeof window.mR.findModule('ChatCollection')[0].ChatCollection.findImpl === 'undefined' && typeof window.mR.findModule('ChatCollection')[0].ChatCollection._find != 'undefined') {
-            window.mR.findModule('ChatCollection')[0].ChatCollection.findImpl = window.mR.findModule('ChatCollection')[0].ChatCollection._find;
-        }
-    }
+    // eslint-disable-next-line no-undef
+    if ((m = window.mR.findModule('ChatCollection')[0]) && m.ChatCollection && typeof m.ChatCollection.findImpl === 'undefined' && typeof m.ChatCollection._find !== 'undefined') m.ChatCollection.findImpl = m.ChatCollection._find;
 
     // TODO remove these once everybody has been updated to WWebJS with legacy sessions removed
     const _linkPreview = window.mR.findModule('queryLinkPreview');
@@ -117,7 +118,7 @@ exports.LoadUtils = () => {
         return false;
 
     };
-
+    //TODO try to understand
     window.WWebJS.sendMessage = async (chat, content, options = {}) => {
         let attOptions = {};
         if (options.attachment) {
@@ -166,6 +167,19 @@ exports.LoadUtils = () => {
                 lng: options.location.longitude
             };
             delete options.location;
+        }
+        let _pollOptions = {};
+        if (options.poll) {
+            const { pollName, pollOptions } = options.poll;
+            const { allowMultipleAnswers } = options.poll.options;
+            _pollOptions = {
+                type: 'poll_creation',
+                pollName: pollName,
+                pollOptions: pollOptions,
+                pollSelectableOptionsCount: allowMultipleAnswers ? 0 : 1,
+                messageSecret: window.crypto.getRandomValues(new Uint8Array(32))
+            };
+            delete options.poll;
         }
 
         let vcardOptions = {};
@@ -287,6 +301,7 @@ exports.LoadUtils = () => {
             type: 'chat',
             ...ephemeralFields,
             ...locationOptions,
+            ..._pollOptions,
             ...attOptions,
             ...(attOptions.toJSON ? attOptions.toJSON() : {}),
             ...quotedMsgOptions,

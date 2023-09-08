@@ -51,6 +51,7 @@ exports.Events = {
     MESSAGE_EDIT: 'message_edit',
     UNREAD_COUNT: 'unread_count',
     MESSAGE_REACTION: 'message_reaction',
+    POLL_VOTE:'poll_vote',
     MEDIA_UPLOADED: 'media_uploaded',
     CONTACT_CHANGED: 'contact_changed',
     GROUP_JOIN: 'group_join',
@@ -107,6 +108,7 @@ exports.MessageTypes = {
     PROTOCOL: 'protocol',
     REACTION: 'reaction',
     TEMPLATE_BUTTON_REPLY: 'template_button_reply',
+    POLL_CREATION: 'poll_creation',
 };
 
 /**

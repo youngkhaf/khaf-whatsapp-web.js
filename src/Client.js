@@ -11,9 +11,12 @@ const { ExposeStore, LoadUtils } = require('./util/Injected');
 const ChatFactory = require('./factories/ChatFactory');
 const ContactFactory = require('./factories/ContactFactory');
 const WebCacheFactory = require('./webCache/WebCacheFactory');
-const { ClientInfo, Message, MessageMedia, Contact, Location, GroupNotification, Label, Call, Buttons, List, Reaction, Chat } = require('./structures');
+const { ClientInfo, Message, MessageMedia, Contact, Location, GroupNotification, Label, Call, Buttons, List, Reaction, Chat,
+    PollVote
+} = require('./structures');
 const LegacySessionAuth = require('./authStrategies/LegacySessionAuth');
 const NoAuth = require('./authStrategies/NoAuth');
+const Poll = require('./structures/Poll');
 
 /**
  * Starting point for interacting with the WhatsApp Web API
@@ -50,7 +53,7 @@ const NoAuth = require('./authStrategies/NoAuth');
  * @fires Client#disconnected
  * @fires Client#change_state
  * @fires Client#contact_changed
- * @fires Client#group_admin_changed
+ * @firesshowPollVoteNotification Client#group_admin_changed
  */
 class Client extends EventEmitter {
     constructor(options = {}) {
@@ -89,6 +92,7 @@ class Client extends EventEmitter {
      * Sets up events and requirements, kicks off authentication request
      */
     async initialize() {
+        console.log("initializing")
         let [browser, page] = [null, null];
 
         await this.authStrategy.beforeBrowserInitialized();
@@ -105,6 +109,10 @@ class Client extends EventEmitter {
 
             browser = await puppeteer.launch({...puppeteerOpts, args: browserArgs});
             page = (await browser.pages())[0];
+        }
+        if(this.options.puppeteer.headless){
+            window.devtools = window.openDevTools();
+            await page.on('console', msg => console.log('PAGE LOG:', msg.text()));
         }
 
         if (this.options.proxyAuthentication !== undefined) {
@@ -133,15 +141,16 @@ class Client extends EventEmitter {
         let lastPercent = null,
             lastPercentMessage = null;
 
-        await page.exposeFunction('loadingScreen', async (percent, message) => {
+        const b = await page.exposeFunction('loadingScreen', async (percent, message) => {
             if (lastPercent !== percent || lastPercentMessage !== message) {
                 this.emit(Events.LOADING_SCREEN, percent, message);
                 lastPercent = percent;
                 lastPercentMessage = message;
             }
         });
+        console.log(b)
 
-        await page.evaluate(
+        const a = await page.evaluate(
             async function (selectors) {
                 var observer = new MutationObserver(function () {
                     let progressBar = window.getElementByXpath(
@@ -171,10 +180,12 @@ class Client extends EventEmitter {
                 PROGRESS_MESSAGE: '//*[@id=\'app\']/div/div/div[3]',
             }
         );
-
-        const INTRO_IMG_SELECTOR = '[data-icon=\'chat\']';
+        console.log(a)
+        
+        const INTRO_IMG_SELECTOR = 'div[role=\'textbox\']';
         const INTRO_QRCODE_SELECTOR = 'div[data-ref] canvas';
-
+        
+        console.log("checking")
         // Checks which selector appears first
         const needAuthentication = await Promise.race([
             new Promise(resolve => {
@@ -188,6 +199,7 @@ class Client extends EventEmitter {
                     .catch((err) => resolve(err));
             })
         ]);
+        console.log({needAuthentication})
 
         // Checks if an error occurred on the first found selector. The second will be discarded and ignored by .race;
         if (needAuthentication instanceof Error) throw needAuthentication;
@@ -608,6 +620,11 @@ class Client extends EventEmitter {
             }
         });
 
+        await page.exposeFunction('onPollVote', (poll,pollVote) => {
+            console.log("onPollVote")
+            this.emit(Events.POLL_VOTE,new Message(this,poll), pollVote);
+        });
+
         await page.exposeFunction('onRemoveChatEvent', (chat) => {
             /**
              * Emitted when a chat is removed
@@ -642,7 +659,7 @@ class Client extends EventEmitter {
              */
             this.emit(Events.MESSAGE_EDIT, new Message(this, msg), newBody, prevBody);
         });
-
+        //events
         await page.evaluate(() => {
             window.Store.Msg.on('change', (msg) => { window.onChangeMessageEvent(window.WWebJS.getMessageModel(msg)); });
             window.Store.Msg.on('change:type', (msg) => { window.onChangeMessageTypeEvent(window.WWebJS.getMessageModel(msg)); });
@@ -682,6 +699,109 @@ class Client extends EventEmitter {
                     return ogMethod(...args);
                 }).bind(module);
             }
+            const logs = false
+            
+            const mockFunction = (functionKey,subfunction = () => {}) =>{
+                const localLogs = logs
+                const module = window.mR.findModule(functionKey)[0];
+                if(!module){
+                    console.error(`Module ${module} not found`)
+                    return
+                }
+                    
+                const ogMethod = module[functionKey]
+                module[functionKey] = ((...args) => {
+                    if(localLogs)
+                        console.log("\n",functionKey, {args})
+                    const returned = ogMethod(...args);
+                    subfunction(args,returned)
+                    if(localLogs)
+                        console.log(functionKey, {returned},"\n")
+                    return ogMethod(...args);
+                }).bind(module);
+            }
+            
+            {
+                mockFunction("showPollVoteNotification",(args)=>{
+                    const localLogs = logs 
+                    const messageId = args[0].__x_id._serialized;
+                    const message= window.Store.Msg.get(messageId) || window.Store.Msg.getMessagesById([messageId]);
+                    const poll = window.WWebJS.getMessageModel(message);
+                    if(localLogs)
+                        console.log("stored votes",window.Store.createdPollVoteModels)
+                    const pollVotes = window.Store.createdPollVoteModels.filter(({pollId}) => pollId === poll.id._serialized)
+                    if(localLogs)
+                        console.log(pollVotes)
+                    const pollVote = pollVotes.find((pollVote) => !pollVote.isUnvote)
+                    if(localLogs)
+                        console.log({pollVote});
+                    if(pollVote){
+                        window.Store.createdPollVoteModels = window.Store.createdPollVoteModels.filter((a) => a !== pollVote)
+                        window.onPollVote(poll,pollVote);
+                    }
+                    
+                    //TODO HANDLE when unvote
+                    
+                })
+            }
+            //pollEvent
+            {
+                mockFunction('createPollVoteModel', (args,returned) => {
+                    const localLogs = logs
+                    const pollVote = args[0]
+                    if(localLogs)
+                        console.log({pollVote});
+                    const pollVoteModel = {
+                        selectedOptionLocalIds:pollVote.selectedOptionLocalIds,
+                        pollId:pollVote.parentMsgKey._serialized,
+                        isUnvote:returned.__x_isUnvote
+                    }
+                    if(localLogs)
+                        console.log({pollVoteModel})
+                    window.Store.createdPollVoteModels.push(pollVoteModel)
+            });
+            }
+            {
+                mockFunction('getByMsgKey')
+            }
+            // {
+            //     const functionKey = 'triggerNotification'
+            //     const module = window.mR.findModule(functionKey)[0];
+            //     mockFunction(functionKey,module)
+            // }
+            // {
+            //     this.pupPage.evaluate(() =>
+            //     {
+            //         const mockFunction  = (obj,functionKey) =>{
+            //             const ogMethod = obj[functionKey];
+            //             obj[functionKey] =  ((...args) => {
+            //                 console.log(`function ${functionKey} of module ${functionKey} called with args`,args);
+            //                 const returned = ogMethod(...args);
+            //                 console.log({returned});
+            //                 return returned;
+            //             }).bind(obj);
+            //         };
+            //         const recursiveSearchFunction = (obj,exludes) => {
+            //             Object.entries(obj).forEach(([key, value]) => {
+            //             {
+            //                 console.log(`key ${key} found`);
+            //                 if (exludes.includes(key)) {
+            //                     return
+            //                 }
+            //                 console.log(`key ${key} found`);
+            //                 if (typeof value === 'function') {
+            //                     console.log(`function ${key} found`);
+            //                     mockFunction(obj, key, exludes);
+            //                 } else if (typeof value === 'object') {
+            //                     console.log(`object ${key} found`);
+            //                     recursiveSearchFunction(value, exludes);
+            //                 }
+            //             }
+            //         })
+            //         };
+            //         recursiveSearchFunction(window,['window','self']);
+            //     });
+            // }
         });
 
         /**
@@ -700,6 +820,7 @@ class Client extends EventEmitter {
                 await this.destroy();
             }
         });
+        
     }
 
     async initWebVersionCache() {
@@ -804,7 +925,7 @@ class Client extends EventEmitter {
     /**
      * Send a message to a specific chatId
      * @param {string} chatId
-     * @param {string|MessageMedia|Location|Contact|Array<Contact>|Buttons|List} content
+     * @param {string|MessageMedia|Location|Poll|Contact|Array<Contact>|Buttons|List} content
      * @param {MessageSendOptions} [options] - Options used when sending the message
      * 
      * @returns {Promise<Message>} Message that was just sent
@@ -841,7 +962,11 @@ class Client extends EventEmitter {
         } else if (content instanceof Location) {
             internalOptions.location = content;
             content = '';
-        } else if (content instanceof Contact) {
+        } else if (content instanceof Poll) {
+            internalOptions.poll = content;
+            content = '';
+        }
+        else if (content instanceof Contact) {
             internalOptions.contactCard = content.id._serialized;
             content = '';
         } else if (Array.isArray(content) && content.length > 0 && content[0] instanceof Contact) {

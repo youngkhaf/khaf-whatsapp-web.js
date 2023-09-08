@@ -1,11 +1,13 @@
-const { Client, Location, List, Buttons, LocalAuth } = require('./index');
+const { Client,Poll, Location, List, Buttons, LocalAuth } = require('./index');
 
 const client = new Client({
     authStrategy: new LocalAuth(),
     // proxyAuthentication: { username: 'username', password: 'password' },
     puppeteer: { 
         // args: ['--proxy-server=proxy-server-that-requires-authentication.example.com'],
-        headless: false
+        headless: false,
+        devtools:true,
+        
     }
 });
 
@@ -34,9 +36,14 @@ client.on('ready', () => {
 });
 
 client.on('message', async msg => {
-    console.log('MESSAGE RECEIVED', msg);
-
-    if (msg.body === '!ping reply') {
+    console.log('MESSAGE RECEIVED', msg.type,msg.body);
+    if (msg.body === '!sendpoll') {
+        /** By default the poll is created as a single choice poll: */
+        await msg.reply(new Poll('Winter or Summer?', ['Winter', 'Summer']));
+        /** If you want to provide a multiple choice poll, add allowMultipleAnswers as true: */
+        await msg.reply(new Poll('Cats or Dogs?', ['Cats', 'Dogs'], { allowMultipleAnswers: true }))
+    }
+    else if (msg.body === '!ping reply') {
         // Send a new message as a reply to the current one
         msg.reply('pong');
 
@@ -352,4 +359,14 @@ client.on('group_admin_changed', (notification) => {
     } else if (notification.type === 'demote')
         /** Emitted when a current user is demoted to a regular user. */
         console.log(`You were demoted by ${notification.author}`);
+});
+client.on('poll_vote', (poll,pollVote) => {
+    console.log(pollVote.selectedOptionLocalIds,poll.pollOptions);
+    const selectedOptions = poll.pollOptions
+        .filter(({localId}) => pollVote.selectedOptionLocalIds.includes(localId))
+        .map(({name}) => name).join(' et ');
+    
+    const message = `D'accord pour ${selectedOptions}`;
+    console.log(message,poll.to)
+    client.sendMessage(poll.to,message);
 });
