@@ -111,8 +111,8 @@ class Client extends EventEmitter {
             page = (await browser.pages())[0];
         }
         if(this.options.puppeteer.headless){
-            window.devtools = window.openDevTools();
-            await page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+            //window.devtools = window.openDevTools();
+            //await page.on('console', msg => console.log('PAGE LOG:', msg.text()));
         }
 
         if (this.options.proxyAuthentication !== undefined) {
