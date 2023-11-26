@@ -151,7 +151,21 @@ class Message extends Base {
          * Location information contained in the message, if the message is type "location"
          * @type {Location}
          */
-        this.location = data.type === MessageTypes.LOCATION ? new Location(data.lat, data.lng, data.loc) : undefined;
+        this.location = (() => {
+            if (data.type !== MessageTypes.LOCATION) {
+                return undefined;
+            }
+            let description;
+            if (data.loc && typeof data.loc === 'string') {
+                let splitted = data.loc.split('\n');
+                description = {
+                    name: splitted[0],
+                    address: splitted[1],
+                    url: data.clientUrl
+                };
+            }
+            return new Location(data.lat, data.lng, description);
+        })();
 
         /**
          * List of vCards contained in the message.
@@ -271,6 +285,20 @@ class Message extends Base {
         }
         if(data.pollOptions){
             this.pollOptions = data.pollOptions;
+        }
+
+        if (this.type === MessageTypes.POLL_CREATION) {
+            this.pollName = data.pollName;
+            this.pollOptions = data.pollOptions;
+            this.allowMultipleAnswers = Boolean(!data.pollSelectableOptionsCount);
+            this.pollInvalidated = data.pollInvalidated;
+            this.isSentCagPollCreation = data.isSentCagPollCreation;
+
+            delete this._data.pollName;
+            delete this._data.pollOptions;
+            delete this._data.pollSelectableOptionsCount;
+            delete this._data.pollInvalidated;
+            delete this._data.isSentCagPollCreation;
         }
 
         return super._patch(data);
@@ -522,15 +550,20 @@ class Message extends Base {
      */
 
     /**
-     * Get information about message delivery status. May return null if the message does not exist or is not sent by you.
+     * Get information about message delivery status.
+     * May return null if the message does not exist or is not sent by you.
      * @returns {Promise<?MessageInfo>}
      */
     async getInfo() {
         const info = await this.client.pupPage.evaluate(async (msgId) => {
             const msg = window.Store.Msg.get(msgId);
-            if (!msg) return null;
+            if (!msg || !msg.id.fromMe) return null;
 
-            return await window.Store.MessageInfo.sendQueryMsgInfo(msg.id);
+            return new Promise((resolve) => {
+                setTimeout(async () => {
+                    resolve(await window.Store.getMsgInfo(msg.id));
+                }, (Date.now() - msg.t * 1000 < 1250) && Math.floor(Math.random() * (1200 - 1100 + 1)) + 1100 || 0);
+            });
         }, this.id._serialized);
 
         return info;

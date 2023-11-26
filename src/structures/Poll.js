@@ -4,6 +4,7 @@
  * Poll send options
  * @typedef {Object} PollSendOptions
  * @property {boolean} [allowMultipleAnswers=false] If false it is a single choice poll, otherwise it is a multiple choice poll (false by default)
+ * @property {?Array<number>} messageSecret The custom message secret, can be used as a poll ID. NOTE: it has to be a unique vector with a length of 32
  */
 
 /** Represents a Poll on WhatsApp */
@@ -23,7 +24,7 @@ class Poll {
 
         /**
          * The array of poll options
-         * @type {Array<Object<string, number>>}
+         * @type {Array.<{name: string, localId: number}>}
          */
         this.pollOptions = pollOptions.map((option, index) => ({
             name: option.trim(),
@@ -35,7 +36,8 @@ class Poll {
          * @type {PollSendOptions}
          */
         this.options = {
-            allowMultipleAnswers: options.allowMultipleAnswers === true
+            allowMultipleAnswers: options.allowMultipleAnswers === true,
+            messageSecret: options.messageSecret
         };
     }
 }
